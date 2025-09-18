@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>🤑 Investimentos</title>
+
+  <!-- libs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/docx/7.7.0/docx.umd.min.js"></script>
+
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16px; background: #f6f8fa; color:#222; }
+    .box { background: #fff; padding:12px; border-radius:8px; margin-bottom:12px; box-shadow:0 1px 6px rgba(0,0,0,0.06); }
+    h1,h2 { margin:0 0 8px; }
+    input, select, button, textarea { font:inherit; }
+    input, select { padding:6px; margin:4px; }
+    button { padding:8px 10px; margin:4px; cursor:pointer; border-radius:6px; border:1px solid #ccc; background:#fff; }
+    button.primary { background:#0b74de; color:#fff; border-color:#0a63b8; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; font-size:13px; }
+    th,td { padding:8px; border:1px solid #e6e6e6; text-align:left; vertical-align:middle; }
+    th { background:#fafafa; }
+    .small { font-size:12px; color:#666; }
+    .warning { background:#fff4e5; color:#7a4b00; border-left:4px solid #ffb84d; padding:8px; border-radius:6px; margin-top:8px; }
+    .badge { background:#f1f3f5; border-radius:10px; padding:3px 8px; font-size:12px; margin-left:6px; }
+    canvas { max-width:100%; height:360px; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1 id="headline">📉Calculador de Bolsa</h1>
+    <div id="subline" class="small">Insira operações manualmente ou carregue arquivo (.json / .xlsx). Dados são salvos localmente.</div>
+
+    <div style="margin-top:10px;" class="row">
+      <input type="file" id="fileInput" accept=".json,.xlsx" />
+      <button id="btnProcess">Processar JSON</button>
+      <button id="btnReset">Resetar tudo</button>
+      <button id="btnExportJSON">Exportar .json</button>
+      <button id="btnExportXLSX">Exportar .xlsx</button>
+      <button id="btnExportDOCX">Exportar .docx</button>
+    </div>
+
+    <label class="small" style="display:block; margin-top:8px;">Cole JSON (formato já definido):</label>
+    <textarea id="jsonPaste" style="width:100%;height:120px;"></textarea>
+    <div id="status" class="small" style="margin-top:6px;"></div>
+  </div>
+
+  <div class="box">
+    <h2>Adicionar operação manual</h2>
+    <form id="opForm" class="row" style="align-items:center;">
+      <label>Data <input type="date" id="fData" required></label>
+      <label>Ativo <input type="text" id="fAtivo" required placeholder="FATN11"></label>
+      <label>Operação
+        <select id="fOperacao"><option value="compra">compra</option><option value="venda">venda</option></select>
+      </label>
+      <label>Qtd <input type="number" id="fQtd" step="1" required></label>
+      <label>Preço unit. <input type="number" id="fPreco" step="0.01" required></label>
+      <label>Valor <input type="number" id="fValor" step="0.01" required></label>
+      <button type="submit" class="primary">Adicionar</button>
+      <button type="button" id="btnClearFields">Limpar campos</button>
+    </form>
+    <div class="small">Os campos calculados aparecerão na tabela depois de processar / adicionar.</div>
+  </div>
+
+  <div id="output" style="display:none;">
+    <div class="box">
+      <h2>Operações processadas</h2>
+      <div class="small">Tabela com cálculo: Preço Médio | Lucro/Prejuízo | Tipo | IR | IOF | DARF | GCAP</div>
+      <div style="overflow:auto; max-height:360px; margin-top:8px;">
+        <table id="resultTable">
+          <thead>
+            <tr>
+              <th>Data</th><th>Ativo</th><th>Operação</th><th>Qtd</th><th>Preço Unit.</th>
+              <th>Valor</th><th>Preço Médio</th><th>Lucro/Prejuízo</th><th>Tipo</th>
+              <th>IR</th><th>IOF</th><th>DARF</th><th>GCAP</th><th>Obs</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="alerts"></div>
+    </div>
+
+    <div class="box">
+      <h2>Resumo por ativo</h2>
+      <div id="summaryArea"></div>
+    </div>
+
+    <div class="box">
+      <h2>Gráfico: Preço Médio x Operações</h2>
+      <canvas id="chart"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const headlines = [
+  "📉 Calculadora de Bolsa",
+  "💰 Invista na Bolsa!",
+  "📈 Organize seus Investimentos!",
+  "🤑 Foco na Bolsa!",
+  "🚀 Acompanhe o Gráfico!",
+  "💹 Tenha seus Investimentos nas Mãos!",
+  "💎 Estratégias de Ganhos!"
+    ];
+    const sublines = [
+      "Siga seu plano e veja seu dinheiro crescer.",
+      "Aprenda, analise e execute com precisão.",
+      "O mercado recompensa quem estuda e atua com disciplina.",
+      "Seja paciente, consistente e confiante.",
+      "Transforme operações em resultados positivos.",
+      "Risco calculado é lucro garantido no longo prazo."
+    ];
+
+    let idx = 0;
+    function rotateHeadline() {
+      const h = document.getElementById('headline');
+      const s = document.getElementById('subline');
+      h.textContent = headlines[idx % headlines.length];
+      s.textContent = sublines[idx % sublines.length];
+      idx++;
+    }
+    rotateHeadline();
+    setInterval(rotateHeadline, 10000); // muda a cada 10 segundos
+  </script>
+</body>
+
+
+<script>
+const STORAGE_KEY = 'ops_bolsa';
+let operations = loadOpsFromStorage();
+let processedRows = [];
+let assetsState = {};
+
+const fileInput = document.getElementById('fileInput');
+const btnProcess = document.getElementById('btnProcess');
+const btnReset = document.getElementById('btnReset');
+const btnExportJSON = document.getElementById('btnExportJSON');
+const btnExportXLSX = document.getElementById('btnExportXLSX');
+const btnExportDOCX = document.getElementById('btnExportDOCX');
+const jsonPaste = document.getElementById('jsonPaste');
+const status = document.getElementById('status');
+const opForm = document.getElementById('opForm');
+const btnClearFields = document.getElementById('btnClearFields');
+const outputDiv = document.getElementById('output');
+const resultBody = document.querySelector('#resultTable tbody');
+const summaryArea = document.getElementById('summaryArea');
+const alertsDiv = document.getElementById('alerts');
+const chartCanvas = document.getElementById('chart');
+let chartInstance = null;
+
+function saveOpsToStorage(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(operations)); }
+function loadOpsFromStorage(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch(e){ return []; } }
+function clearStorage(){ localStorage.removeItem(STORAGE_KEY); operations=[]; saveOpsToStorage(); }
+
+if (typeof window.saveAs !== 'function') {
+  window.saveAs = function(blob, filename){
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename || 'download';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  };
+}
+
+if(operations && operations.length>0){
+  jsonPaste.value = JSON.stringify(operations,null,2);
+  try{ processAll(); } catch(e){ status.textContent = 'Erro ao processar dados salvos: '+e.message; }
+}
+
+fileInput.addEventListener('change', handleFileLoad);
+
+btnProcess.addEventListener('click', ()=> {
+  try{
+    const raw = jsonPaste.value.trim();
+    if(!raw){ status.textContent='Cole o JSON ou carregue um arquivo.'; return; }
+    operations = JSON.parse(raw);
+    saveOpsToStorage();
+    processAll();
+  } catch(e){
+    status.textContent='Erro ao ler JSON: '+(e && e.message ? e.message : e);
+  }
+});
+
+btnReset.addEventListener('click', ()=> {
+  if(!confirm('Resetar tudo apagará os dados salvos localmente. Continuar?')) return;
+  operations=[]; processedRows=[]; assetsState={}; clearStorage();
+  resultBody.innerHTML=''; summaryArea.innerHTML=''; alertsDiv.innerHTML=''; outputDiv.style.display='none';
+  if(chartInstance) { chartInstance.destroy(); chartInstance=null; }
+  jsonPaste.value=''; status.textContent='Resetado.';
+});
+
+btnExportJSON.addEventListener('click', ()=>{ const blob = new Blob([JSON.stringify(processedRows.length?processedRows:operations,null,2)],{type:'application/json'}); saveAs(blob,'operacoes.json'); });
+btnExportXLSX.addEventListener('click', ()=>{ const data = processedRows.length?processedRows:operations; const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Operacoes'); XLSX.writeFile(wb,'operacoes.xlsx'); });
+btnExportDOCX.addEventListener('click', async ()=>{
+  try{
+    const { Document,Packer,Paragraph,Table,TableRow,TableCell } = window.docx;
+    const headerCells=['Data','Ativo','Operação','Qtd','Preço Unitário','Valor','Preço Médio','Lucro/Prejuízo','Tipo','IR','IOF','DARF','GCAP','Obs'];
+    const headerRow = new TableRow({ children: headerCells.map(t=>new TableCell({children:[new Paragraph(t)]})) });
+    const rows = (processedRows.length?processedRows:operations).map(r=>{
+      const arr = [
+        r.Data || r.data || '',
+        r.Ativo || r.ativo || '',
+        r.Operação || r.operacao || r.Operação || '',
+        r.Quantidade || r.qtd || r.Quantidade || '',
+        r['Preço Unitário'] || r.preco_unitario || r['Preço Unitário'] || '',
+        r['Valor Operação'] || r.valor || r['Valor Operação'] || '',
+        (r['Preço Médio']!=null ? r['Preço Médio'] : '-'),
+        (r['Lucro/Prejuízo']!=null ? r['Lucro/Prejuízo'] : '-'),
+        r.Tipo || r.tipo || '',
+        r.IR!=null?String(r.IR):'0',
+        r.IOF!=null?String(r.IOF):'0',
+        r.DARF!=null?String(r.DARF):'0',
+        r.GCAP!=null?String(r.GCAP):'0',
+        r.Obs || ''
+      ];
+      return new TableRow({ children: arr.map(c=>new TableCell({children:[new Paragraph(String(c))]}))});
+    });
+    const table = new Table({ rows: [headerRow, ...rows] });
+    const doc = new Document({ sections: [{ children: [table] }] });
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob,'operacoes.docx');
+  }catch(err){ alert('Erro ao gerar DOCX: '+err.message); }
+});
+
+btnClearFields.addEventListener('click', ()=> opForm.reset());
+
+opForm.addEventListener('submit',(e)=>{
+  e.preventDefault();
+  const data = document.getElementById('fData').value;
+  const ativo = document.getElementById('fAtivo').value.toUpperCase();
+  const operacao = document.getElementById('fOperacao').value.toLowerCase();
+  const qtd = Number(document.getElementById('fQtd').value);
+  const preco = Number(document.getElementById('fPreco').value);
+  const valor = Number(document.getElementById('fValor').value);
+  if(!data || !ativo || !operacao || isNaN(qtd) || isNaN(preco)) {
+    status.textContent = 'Preencha todos os campos corretamente.';
+    return;
+  }
+  const op={ Data: data, Ativo: ativo, Operação: operacao, Quantidade: qtd, "Preço Unitário": preco, "Valor Operação": isNaN(valor)?(qtd*preco):valor, Obs:'Inserido manualmente' };
+  operations.push(op); saveOpsToStorage();
+  jsonPaste.value = JSON.stringify(operations,null,2);
+  processAll(); opForm.reset();
+});
+
+function handleFileLoad(e){
+  const f = e.target.files[0]; if(!f) return;
+  const name = f.name.toLowerCase(); const ext = name.split('.').pop();
+  const reader = new FileReader();
+  reader.onload = (ev)=>{
+    try{
+      if(ext==='json'){ operations = JSON.parse(ev.target.result); }
+      else if(ext==='xlsx' || ext==='xls'){
+        const data = new Uint8Array(ev.target.result);
+        const wb = XLSX.read(data, {type:'array'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        operations = XLSX.utils.sheet_to_json(ws, {defval:''});
+      } else { alert('Formato não suportado. Use .json ou .xlsx'); return; }
+      saveOpsToStorage();
+      jsonPaste.value = JSON.stringify(operations,null,2);
+      processAll();
+    } catch(err){ alert('Erro ao ler arquivo: '+(err && err.message?err.message:err)); }
+  };
+  if(ext==='xlsx' || ext==='xls') reader.readAsArrayBuffer(f);
+  else reader.readAsText(f);
+}
+
+function processAll(){
+  try{
+    processedRows=[]; assetsState={}; alertsDiv.innerHTML=''; resultBody.innerHTML='';
+    status.textContent = 'Processando...';
+    const ops = (operations||[]).map((o,i)=>{ const copy = Object.assign({}, o); copy.__date = new Date(o.Data); copy.__idx = i; return copy; })
+      .filter(o=> o.Ativo && o.Operação && !isNaN(Number(o.Quantidade)) && !isNaN(Number(o["Preço Unitário"])) && o.__date.toString()!=='Invalid Date');
+    ops.sort((a,b)=> a.__date - b.__date || a.__idx - b.__idx);
+
+    for(const op of ops){
+      const ativo = (op.Ativo||'').toString().toUpperCase();
+      const side = (op.Operação||'').toString().toLowerCase();
+      const qty = Number(op.Quantidade);
+      const unit = Number(op["Preço Unitário"]);
+      const valor = Number(op["Valor Operação"] ?? (qty*unit));
+      const dateObj = op.__date;
+      const dateKey = dateObj.toISOString().slice(0,10);
+      if(!assetsState[ativo]) assetsState[ativo] = { lots:[], qty:0, avg:null, accumulatedPL:0 };
+      const st = assetsState[ativo];
+
+      if(side === 'compra'){
+        st.lots.push({ qty: qty, unitPrice: unit, date: dateObj });
+        st.qty += qty;
+        st.avg = st.qty>0 ? st.lots.reduce((s,l)=>s + l.qty*l.unitPrice, 0) / st.qty : null;
+        processedRows.push({ Data: dateKey, Ativo: ativo, Operação: 'compra', Quantidade: qty, 'Preço Unitário': unit, 'Valor Operação': valor, 'Preço Médio': st.avg, 'Lucro/Prejuízo': 0, Tipo: 'Compra', IR: 0, IOF: 0, DARF: 0, GCAP: 0, Obs: op.Obs || '' });
+      } else if(side === 'venda'){
+        let remaining = qty;
+        for(let i=0; i<st.lots.length && remaining>0; i++){
+          const lot = st.lots[i]; if(!lot || lot.qty<=0) continue;
+          const lotDateKey = lot.date.toISOString().slice(0,10);
+          if(lotDateKey === dateKey){
+            const take = Math.min(lot.qty, remaining);
+            const cost = take * lot.unitPrice;
+            const proceeds = take * unit;
+            const pl = proceeds - cost;
+            const days = Math.floor((dateObj - lot.date) / (1000*60*60*24));
+            let iofPart = 0; if(days < 30){ iofPart = proceeds * 0.0038 * (30 - days); iofPart = Number(iofPart.toFixed(2)); }
+            const irPart = pl > 0 ? pl * 0.2 : 0;
+            processedRows.push({ Data: dateKey, Ativo: ativo, Operação: 'venda', Quantidade: take, 'Preço Unitário': unit, 'Valor Operação': proceeds, 'Preço Médio': st.avg, 'Lucro/Prejuízo': pl, Tipo: 'Day Trade', IR: Number(irPart.toFixed(2)), IOF: iofPart, DARF: 0, GCAP: pl < 0 ? pl : 0, Obs: op.Obs || '' });
+            lot.qty -= take; remaining -= take; st.accumulatedPL += pl;
+          }
+        }
+        for(let i=0; i<st.lots.length && remaining>0; i++){
+          const lot = st.lots[i]; if(!lot || lot.qty<=0) continue;
+          const lotDateKey = lot.date.toISOString().slice(0,10);
+          if(lotDateKey === dateKey) continue;
+          const take = Math.min(lot.qty, remaining);
+          const proceeds = take * unit;
+          const pl = proceeds - (take * lot.unitPrice);
+          const iofPart = 0; const irPart = pl > 0 ? pl * 0.15 : 0;
+          processedRows.push({ Data: dateKey, Ativo: ativo, Operação: 'venda', Quantidade: take, 'Preço Unitário': unit, 'Valor Operação': proceeds, 'Preço Médio': st.avg, 'Lucro/Prejuízo': pl, Tipo: 'Swing', IR: Number(irPart.toFixed(2)), IOF: iofPart, DARF: 0, GCAP: pl < 0 ? pl : 0, Obs: op.Obs || '' });
+          lot.qty -= take; remaining -= take; st.accumulatedPL += pl;
+        }
+        if(remaining > 0){
+          const take = remaining; const proceeds = take * unit; const pl = proceeds;
+          const irPart = pl > 0 ? pl * 0.15 : 0;
+          processedRows.push({ Data: dateKey, Ativo: ativo, Operação: 'venda', Quantidade: take, 'Preço Unitário': unit, 'Valor Operação': proceeds, 'Preço Médio': null, 'Lucro/Prejuízo': pl, Tipo: 'Swing (sem lote)', IR: Number(irPart.toFixed(2)), IOF: 0, DARF: 0, GCAP: pl < 0 ? pl : 0, Obs: 'Venda maior que posição' });
+          st.accumulatedPL += pl; remaining = 0;
+        }
+        st.lots = st.lots.filter(l => l.qty > 0);
+        st.qty = st.lots.reduce((s,l) => s + l.qty, 0);
+        st.avg = st.qty > 0 ? st.lots.reduce((s,l) => s + l.qty*l.unitPrice, 0) / st.qty : null;
+      }
+    }
+
+    const salesByMonth = {};
+    processedRows.forEach(r=>{ if((r.Operação||'').toString().toLowerCase() === 'venda'){ const ym = (r.Data||'').slice(0,7); salesByMonth[ym] = (salesByMonth[ym]||0) + Number(r['Valor Operação']||0); }});
+    processedRows = processedRows.map(r=>{ if((r.Operação||'').toString().toLowerCase() === 'venda'){ const ym = (r.Data||'').slice(0,7); if((salesByMonth[ym]||0) <= 20000 && (r.IR||0) > 0){ r.DARF = Number(Number(r.IR).toFixed(2)); } else { r.DARF = 0; } } return r; });
+
+    renderTableAndSummary();
+    saveOpsToStorage();
+    status.textContent = `Processado. ${processedRows.length} linhas geradas.`;
+    outputDiv.style.display = 'block';
+    jsonPaste.value = JSON.stringify(operations,null,2);
+  }catch(err){
+    status.textContent = 'Erro em processAll: ' + (err && err.message ? err.message : err);
+    console.error(err);
+  }
+}
+
+function renderTableAndSummary(){
+  resultBody.innerHTML = '';
+  processedRows.forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.Data||''}</td>
+      <td>${r.Ativo||''}</td>
+      <td>${r.Operação||''}</td>
+      <td>${r.Quantidade!=null?r.Quantidade:''}</td>
+      <td>${formatNumber(r['Preço Unitário'])}</td>
+      <td>${formatNumber(r['Valor Operação'])}</td>
+      <td>${(r['Preço Médio']!=null)?formatNumber(r['Preço Médio'],4):'-'}</td>
+      <td>${(r['Lucro/Prejuízo']<0)?'⚠️ '+formatNumber(r['Lucro/Prejuízo']):formatNumber(r['Lucro/Prejuízo'])}</td>
+      <td>${r.Tipo||''}</td>
+      <td>${formatNumber(r.IR)}</td>
+      <td>${formatNumber(r.IOF)}</td>
+      <td>${formatNumber(r.DARF)}</td>
+      <td>${(r.GCAP!=null)?formatNumber(r.GCAP):'-'}</td>
+      <td>${r.Obs||''}</td>`;
+    resultBody.appendChild(tr);
+  });
+
+  summaryArea.innerHTML = '';
+  for(const ativo of Object.keys(assetsState)){
+    const st = assetsState[ativo];
+    const div = document.createElement('div'); div.className = 'box';
+    const precoMed = st.avg != null ? formatNumber(st.avg,4) : '-';
+    const acumulado = formatNumber(st.accumulatedPL || 0);
+    const posicao = st.qty || 0;
+    let warning = '';
+    if((st.accumulatedPL||0) < 0){ warning = `<div class="warning">⚠️ Prejuízo a compensar — veja Receita: <a href="https://www.gov.br/receitafederal/pt-br" target="_blank" rel="noopener">gov.br/receitafederal</a></div>`; }
+    div.innerHTML = `<strong>${ativo}</strong>
+      <div class="small">Posição atual: <span class="badge">${posicao}</span> | Preço médio: <span class="badge">${precoMed}</span></div>
+      <div class="small">Resultado acumulado: <span class="badge">${acumulado}</span></div>
+      ${warning}`;
+    summaryArea.appendChild(div);
+  }
+
+  // Gráfico melhorado
+  const labels = processedRows.map(r=> r.Data||'');
+  const pmData = processedRows.map(r=> r['Preço Médio']!=null ? r['Preço Médio'] : null);
+  const compraData = processedRows.map(r=> (r.Operação||'').toLowerCase()==='compra'?r['Preço Unitário']:null);
+  const vendaData = processedRows.map(r=> (r.Operação||'').toLowerCase()==='venda'?r['Preço Unitário']:null);
+
+  if(chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(chartCanvas, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Preço Médio', data: pmData, borderColor:'#0b74de', backgroundColor:'rgba(11,116,222,0.1)', spanGaps:true, tension:0.3, yAxisID:'y' },
+        { label: 'Compra', data: compraData, borderColor:'#1b9e77', backgroundColor:'rgba(27,158,119,0.3)', type:'bar', yAxisID:'y' },
+        { label: 'Venda', data: vendaData.map(v=>v!==null?-v:null), borderColor:'#d95f02', backgroundColor:'rgba(217,95,2,0.3)', type:'bar', yAxisID:'y' }
+      ]
+    },
+    options: {
+      responsive:true,
+      plugins:{ tooltip:{ mode:'index', intersect:false } },
+      scales: {
+        y: { title:{ display:true, text:'Preço (R$)' }, beginAtZero:false },
+        x: { title:{ display:true, text:'Data' } }
+      }
+    }
+  });
+}
+
+function formatNumber(v, d=2){ if(v===null || v===undefined || isNaN(Number(v))) return '-'; return Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d, maximumFractionDigits:d}); }
+
+window.processAll = processAll;
+</script>
+</body>
+</html>
